@@ -10,3 +10,5 @@ In Blender, after installing the addon (import_maya_shader.zip), you will need t
 This will only convert basic shader trees. If the Maya shader uses anything else than file inputs, like addMix, ramps, curves or any other nodes, it will not convert properly. It will only convert aiStandardSurface shaders. If there are no file input, it will take whatever value is set on the shader, including RGB information.
 
 You can also watch this tutorial: https://youtu.be/BMMMBFw-z3Y
+
+Special thanks to Tinkerboi for his contribution
