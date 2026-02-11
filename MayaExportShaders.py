@@ -5,7 +5,8 @@ import maya.cmds as cmds
 AI_STD_ATTRS = [
     "baseColor", "metalness", "specular", "specularRoughness",
     "subsurface", "subsurfaceColor", "subsurfaceRadius",
-    "transmission", "emissionColor", "coat", "coatRoughness"
+    "transmission", "emissionColor", "coat", "coatRoughness",
+    "normalCamera", "opacity"
 ]
 
 def get_file_info(attribute):
