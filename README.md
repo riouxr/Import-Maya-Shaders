@@ -67,10 +67,6 @@ Maya/Arnold and Blender/Cycles calculate light intensity using different interna
 
 The importer applies a global scale factor to all imported light energies to compensate. This value is set near the top of `import_maya_shader.py`:
 
-```python
-ARNOLD_TO_BLENDER_EV = -13.5  # adjust this value to match your setup
-```
-
 **This value will vary depending on the colour management settings active in Blender.** Filmic, AgX, and Raw all apply different tone curves that affect perceived brightness. After importing, compare a simple test render in both applications and adjust `ARNOLD_TO_BLENDER_EV` (or use Blender's scene-level exposure in `Render Properties → Color Management`) until the lighting matches.
 
-A starting point of **-13.5 EV** was calibrated against Blender's Filmic colour management with a standard Arnold area light setup. Your scene may require a different value.
+
