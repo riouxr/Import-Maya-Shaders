@@ -179,7 +179,7 @@ VECTOR_PRODUCT_OPS  = {0: "DOT_PRODUCT", 1: "CROSS_PRODUCT",
 AI_STD_ATTRS = [
     "baseColor", "metalness", "specular", "specularRoughness",
     "subsurface", "subsurfaceColor", "subsurfaceRadius",
-    "transmission", "emissionColor", "coat", "coatRoughness",
+    "transmission", "emission", "emissionColor", "coat", "coatRoughness",
     "normalCamera", "opacity",
 ]
 
