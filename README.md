@@ -7,7 +7,7 @@ A two-part tool for transferring Arnold-shaded Maya scenes into Blender (Cycles)
 ## Requirements
 
 - **Maya** with Arnold (mtoa)
-- **Blender 4.1+** (tested on Blender 5.0)
+- **Blender 4.5+** (tested on Blender 5.0)
 - Cycles render engine
 
 ---
