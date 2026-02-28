@@ -481,7 +481,9 @@ def export_ai_standard_surface_data():
     for mesh in cmds.ls(type="mesh", noIntermediate=True):
         transform = cmds.listRelatives(mesh, parent=True, fullPath=True)[0]
         sgs       = cmds.listConnections(mesh, type="shadingEngine") or []
-        export_data["meshes"][mesh] = {"transform": transform, "materials": []}
+        # displaySmoothMesh == 2 means the mesh is in smooth-preview mode (key 3)
+        smooth_preview = (safe_get(mesh, "displaySmoothMesh") == 2)
+        export_data["meshes"][mesh] = {"transform": transform, "materials": [], "subdivisionPreview": smooth_preview}
         for sg in sgs:
             surface_shaders = cmds.listConnections(
                 sg + ".surfaceShader", type="aiStandardSurface"
