@@ -44,6 +44,9 @@ Both files are required for the Blender import.
 - Intensity, exposure, color, color temperature
 - Arnold-specific attributes (shadow casting, spread, radius, etc.)
 
+**Geometry**
+- Meshes in Maya smooth-preview mode (press **3** in Maya) are automatically imported with a **Subdivision Surface** modifier applied (2 levels, viewport and render).
+
 **Supported utility nodes**
 `file`, `place2dTexture`, `aiNormalMap`, `bump2d`, `aiMixShader`, `aiMix`, `aiMultiply`, `aiAdd`, `aiSubtract`, `aiColorCorrect`, `aiAbs`, `blendColors`, `layeredTexture`, `multiplyDivide`, `addDoubleLinear`, `multDoubleLinear`, `unitConversion`, `vectorProduct`, `ramp`, `gammaCorrect`, `clamp`, `reverse`, `luminance`, `hsvToRgb`, `noise`, `fractal`
 
@@ -55,7 +58,7 @@ Both files are required for the Blender import.
 - **Unsupported utility nodes** — any node in the shader graph that is not in the list above will be skipped. Inputs that depend on a skipped node will be left unconnected in Blender.
 - **Procedural Arnold nodes** — `aiNoise`, `aiCellNoise`, `aiFlakes`, `aiMoirePattern`, `aiWireframe`, and similar Arnold-specific procedurals have no direct Blender equivalent and are not transferred.
 - **aiMixShader with two full shaders** — when aiMixShader blends two complete aiStandardSurface networks, only the color output is mixed (via a MixRGB node). The two sub-shaders are not reconstructed as separate Principled BSDFs.
-- **Geometry not supported** — NURBS surfaces, subdivision surfaces, and particles are exported as-is by Maya's FBX exporter and may not import correctly.
+- **Geometry not supported** — NURBS surfaces and particles are exported as-is by Maya's FBX exporter and may not import correctly. Smooth-preview subdivision (key 3) is transferred as a Blender Subdivision Surface modifier; actual Maya subdivision surface nodes are not supported.
 - **Animations and rigs** — not in scope; the exporter targets static shading and lighting only.
 - **Referenced textures** — texture file paths are stored as absolute paths from the Maya machine. Textures must be manually re-linked if the Blender machine uses a different directory structure.
 
