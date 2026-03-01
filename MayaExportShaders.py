@@ -159,10 +159,6 @@ NODE_REGISTRY = {
         "outputs": {"outColor": "Color"},
         "attrs":   ["amplitude", "frequencyRatio", "time"],
     },
-    # aiMixShader blends two full Arnold shaders using a scalar mix weight.
-    # In practice the shader inputs are often texture colours, so we map it
-    # to a MixRGB node in Blender which is a faithful equivalent for colour
-    # blending.  "mix" is the blend factor (0 = shader1, 1 = shader2).
     "aiMixShader": {
         "blenderType":    "ShaderNodeMixRGB",
         "blenderSubtype": "MIX",
@@ -196,14 +192,12 @@ LIGHT_TYPE_MAP = {
     "aiSkyDomeLight":   "WORLD",
 }
 
-# Attributes present on every Arnold light shape
 COMMON_LIGHT_ATTRS = [
     "aiDiffuse", "aiSpecular", "aiSss", "aiIndirect", "aiVolume",
     "aiMaxBounces", "aiCastShadows", "aiCastVolumetricShadows",
     "aiShadowDensity", "aiShadowColor", "aiSamples", "aiNormalize",
 ]
 
-# Additional attributes per light type
 LIGHT_EXTRA_ATTRS = {
     "pointLight":       ["aiRadius"],
     "spotLight":        ["coneAngle", "penumbraAngle", "dropoff", "aiRadius"],
@@ -351,30 +345,14 @@ def get_skydome_texture(shape):
 
 
 def export_light(shape, light_type):
-    """
-    Export all attributes for one Arnold light shape node.
-
-    Intensity and exposure are stored separately (NOT pre-multiplied).
-    Blender 4.x has its own per-light Exposure field, so we let Blender
-    compute  energy × 2^exposure  natively rather than baking it.
-
-    Color temperature is stored as useColorTemp + colorTemp (Kelvin).
-    The importer sets Blender's native use_color_temperature / color_temperature
-    properties directly — no Kelvin-to-RGB conversion is performed.
-
-    Visibility is handled by FBX and is not exported here.
-    """
     transform = cmds.listRelatives(shape, parent=True, fullPath=True)[0]
 
     translate = cmds.xform(transform, q=True, worldSpace=True, translation=True)
     rotate    = cmds.xform(transform, q=True, worldSpace=True, rotation=True)
     scale     = cmds.xform(transform, q=True, worldSpace=True, scale=True)
 
-    # Raw intensity and exposure — NOT pre-multiplied
-    intensity = float(safe_get(shape, "intensity") or 1.0)
-    exposure  = float(safe_get(shape, "aiExposure") or 0.0)
-
-    # Color temperature
+    intensity      = float(safe_get(shape, "intensity") or 1.0)
+    exposure       = float(safe_get(shape, "aiExposure") or 0.0)
     use_color_temp = bool(safe_get(shape, "aiUseColorTemperature") or False)
     color_temp     = float(safe_get(shape, "aiColorTemperature") or 6500.0)
 
@@ -394,26 +372,20 @@ def export_light(shape, light_type):
         "attributes":   {},
     }
 
-    # Common Arnold attributes
     for attr in COMMON_LIGHT_ATTRS:
         val = safe_get(shape, attr)
         if val is not None:
             entry["attributes"][attr] = val
 
-    # Per-type Arnold attributes
     for attr in LIGHT_EXTRA_ATTRS.get(light_type, []):
         val = safe_get(shape, attr)
         if val is not None:
             entry["attributes"][attr] = val
 
-    # Area light size
-    # Maya areaLight / aiAreaLight is a 1×1 unit plane at scale (1,1,1).
-    # Blender needs the size scaled ×10 to match the scene unit difference.
     if light_type in ("areaLight", "aiAreaLight"):
         entry["attributes"]["blenderSizeX"] = abs(scale[0]) * 10.0
         entry["attributes"]["blenderSizeY"] = abs(scale[1]) * 10.0
 
-    # Spot — pre-compute Blender values
     if light_type == "spotLight":
         cone   = float(safe_get(shape, "coneAngle")    or 40.0)
         penumb = float(safe_get(shape, "penumbraAngle") or 0.0)
@@ -422,13 +394,11 @@ def export_light(shape, light_type):
         entry["attributes"]["blenderSpotSize"]  = math.radians(outer)
         entry["attributes"]["blenderSpotBlend"] = min(max(blend, 0.0), 1.0)
 
-    # Directional — angular diameter degrees → radians
     if light_type == "directionalLight":
         entry["attributes"]["blenderAngle"] = math.radians(
             float(safe_get(shape, "aiAngle") or 0.526)
         )
 
-    # SkyDome — HDRI path
     if light_type == "aiSkyDomeLight":
         entry["attributes"]["hdriPath"] = get_skydome_texture(shape)
 
@@ -454,36 +424,115 @@ def export_ai_standard_surface_data():
         return
     export_selected = (scope == "Selected")
 
-    # Step 2 — pick save path (FBX)
+    # Step 2 — frame range
+    start_frame = int(cmds.playbackOptions(q=True, minTime=True))
+    end_frame   = int(cmds.playbackOptions(q=True, maxTime=True))
+    range_result = cmds.promptDialog(
+        title="Frame Range",
+        message=f"Frame range (start end):",
+        text=f"{start_frame} {end_frame}",
+        button=["OK", "Cancel"],
+        defaultButton="OK",
+        cancelButton="Cancel",
+        dismissString="Cancel",
+    )
+    if range_result == "Cancel":
+        cmds.warning("Export cancelled.")
+        return
+    try:
+        parts = cmds.promptDialog(query=True, text=True).split()
+        if len(parts) == 1:
+            start_frame = end_frame = int(parts[0])
+        else:
+            start_frame, end_frame = int(parts[0]), int(parts[1])
+    except Exception:
+        cmds.warning("Invalid frame range — using timeline defaults.")
+
+    # Step 3 — pick save path (Alembic)
     path = cmds.fileDialog2(
         fileMode=0,
-        caption="Save FBX",
-        fileFilter="FBX Files (*.fbx)",
+        caption="Save Alembic",
+        fileFilter="Alembic Files (*.abc)",
     )
     if not path:
         cmds.warning("Export cancelled.")
         return
-    fbx_path = path[0]
-    if not fbx_path.lower().endswith(".fbx"):
-        fbx_path += ".fbx"
+    abc_path = path[0]
+    if not abc_path.lower().endswith(".abc"):
+        abc_path += ".abc"
 
-    # Step 3 — export FBX using Maya native file command (no MEL flags needed)
+    # Step 4 — export Alembic
+    # -uvWrite        : export UV sets
+    # -worldSpace     : bake transforms to world space (matches JSON light positions)
+    # -writeVisibility: carry visibility flags
+    # -dataFormat ogawa: modern compact format (vs HDF5)
     if export_selected:
-        cmds.file(fbx_path, force=True, exportSelected=True, type="FBX export", preserveReferences=True)
+        roots = cmds.ls(selection=True, long=True)
+        if not roots:
+            cmds.warning("Nothing selected.")
+            return
+        root_flags = " ".join(f"-root {r}" for r in roots)
+        job = (f"-frameRange {start_frame} {end_frame} "
+               f"-uvWrite -worldSpace -writeVisibility -dataFormat ogawa "
+               f"{root_flags} -file {abc_path}")
     else:
-        cmds.file(fbx_path, force=True, exportAll=True,      type="FBX export", preserveReferences=True)
-    print("[INFO] FBX exported -> " + fbx_path)
+        job = (f"-frameRange {start_frame} {end_frame} "
+               f"-uvWrite -worldSpace -writeVisibility -dataFormat ogawa "
+               f"-file {abc_path}")
 
-    # Step 4 — collect shader & light data
-    json_path = fbx_path[:-4] + ".json"
+    cmds.AbcExport(j=job)
+    print("[INFO] Alembic exported -> " + abc_path)
+
+    # Step 5 — collect shader & light data
+    json_path   = abc_path[:-4] + ".json"
     export_data = {"meshes": {}, "shaders": {}, "lights": {}}
 
-    for mesh in cmds.ls(type="mesh", noIntermediate=True):
-        transform = cmds.listRelatives(mesh, parent=True, fullPath=True)[0]
-        sgs       = cmds.listConnections(mesh, type="shadingEngine") or []
-        # displaySmoothMesh == 2 means the mesh is in smooth-preview mode (key 3)
+    # Collect meshes — store the full DAG path so the importer can match
+    # on the leaf name even inside deeply nested hierarchies.
+    # Collect display layers: name → {visible, objects}
+    # "defaultLayer" is Maya's built-in catch-all — skip it.
+    layers_data = {}
+    for layer in cmds.ls(type="displayLayer") or []:
+        if layer == "defaultLayer":
+            continue
+        layer_vis  = bool(cmds.getAttr(layer + ".visibility"))
+        layer_objs = cmds.editDisplayLayerMembers(layer, q=True, fullNames=True) or []
+        layers_data[layer] = {
+            "visible": layer_vis,
+            "members": [o.split("|")[-1] for o in layer_objs],
+        }
+    export_data["layers"] = layers_data
+
+    # Build reverse map: transform short-name → layer name
+    _transform_to_layer = {}
+    for layer, ldata in layers_data.items():
+        for m in ldata["members"]:
+            _transform_to_layer[m] = layer
+
+    mesh_list = cmds.ls(type="mesh", noIntermediate=True)
+    if export_selected:
+        # Limit to meshes under the selected roots
+        selected_set = set(cmds.listRelatives(
+            roots, allDescendents=True, fullPath=True, type="mesh"
+        ) or [])
+        mesh_list = [m for m in mesh_list if m in selected_set]
+
+    for mesh in mesh_list:
+        transform     = cmds.listRelatives(mesh, parent=True, fullPath=True)[0]
+        sgs           = cmds.listConnections(mesh, type="shadingEngine") or []
+        # displaySmoothMesh == 2 → smooth-preview mode (key 3 in Maya)
         smooth_preview = (safe_get(mesh, "displaySmoothMesh") == 2)
-        export_data["meshes"][mesh] = {"transform": transform, "materials": [], "subdivisionPreview": smooth_preview}
+        # Visibility: check the transform node (shape inherits from it)
+        is_visible = bool(cmds.getAttr(transform + ".visibility"))
+        transform_short = transform.split("|")[-1]
+        export_data["meshes"][mesh] = {
+            "transform":          transform,
+            "fullPath":           transform,   # kept for hierarchy matching
+            "materials":          [],
+            "subdivisionPreview": smooth_preview,
+            "visible":            is_visible,
+            "displayLayer":       _transform_to_layer.get(transform_short),
+        }
         for sg in sgs:
             surface_shaders = cmds.listConnections(
                 sg + ".surfaceShader", type="aiStandardSurface"
@@ -505,7 +554,21 @@ def export_ai_standard_surface_data():
             except Exception as e:
                 cmds.warning("Could not export light '" + shape + "': " + str(e))
 
-    # Step 5 — write JSON
+    # Step 5b — collect locally-hidden transform nodes
+    # In Maya, hiding a group hides all its descendants (inherited visibility).
+    # Blender empties don't propagate visibility to children, so we record
+    # every transform whose LOCAL visibility flag is False.  The importer will
+    # walk each such node's Blender children and hide them recursively.
+    hidden_transforms = []
+    for t in (cmds.ls(type="transform", long=True) or []):
+        try:
+            if not cmds.getAttr(t + ".visibility"):
+                hidden_transforms.append(t.split("|")[-1])
+        except Exception:
+            pass
+    export_data["hiddenTransforms"] = hidden_transforms
+
+    # Step 6 — write JSON
     try:
         with open(json_path, "w") as f:
             json.dump(export_data, f, indent=4)
@@ -518,8 +581,9 @@ def export_ai_standard_surface_data():
         return
 
     msg = ("Export complete."
-           + "\n\nFBX:  " + fbx_path
-           + "\nJSON: " + json_path)
+           + "\n\nAlembic: " + abc_path
+           + "\nJSON:    " + json_path
+           + "\nFrames:  " + str(start_frame) + " – " + str(end_frame))
     cmds.confirmDialog(title="Done", message=msg, button=["OK"])
 
 
